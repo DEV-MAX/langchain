@@ -1,15 +1,15 @@
 
-from dotenv import load_dotenv
+import json
+import os
 
+from dotenv import load_dotenv
+from langsmith import traceable
 load_dotenv()
 
-from langchain_core.tools import tool
-
-from langchain.chat_models import init_chat_model
-from langchain.messages import HumanMessage, SystemMessage, ToolMessage
+from openrouter import OpenRouter
 
 
-@tool("get_product_price", description="Get the price of a product by its name.")
+@traceable(name="get_product_price", run_type="tool")
 def get_product_price(product_name):
     product_prices = {
         "laptop": "$999",
@@ -22,8 +22,7 @@ def get_product_price(product_name):
 
     return price;
 
-
-@tool("get_discounted_price", description="Calculate the discounted price given the original price and discount percentage.")
+@traceable(name="get_discounted_price", run_type="tool")    
 def get_discounted_price(price, discount_percentage):
     try:
         print(f"Received price: {price} and discount percentage: {discount_percentage}")
@@ -42,63 +41,143 @@ def get_discounted_price(price, discount_percentage):
 MODEL="nvidia/nemotron-3-super-120b-a12b:free"
 ITERATION=10
 
+client=OpenRouter(  api_key=os.environ["OPENROUTER_API_KEY"])
 
+
+tools_schema = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_product_price",
+            "description": "Get the price of a product by its name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_name": {
+                        "type": "string",
+                        "description": "The name of the product to get the price for."
+                    }
+                },
+                "required": ["product_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_discounted_price",
+            "description": "Calculate the discounted price based on the original price and discount percentage.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "price": {
+                        "type": "string",
+                        "description": "The original price of the product (e.g., '$999')."
+                    },
+                    "discount_percentage": {
+                        "type": "number",
+                        "description": "The discount percentage to apply (e.g., 10 for 10%)."
+                    }
+                },
+                "required": ["price", "discount_percentage"]
+            }
+        }
+    }
+]
+
+class SystemMessage:
+    def __init__(self, content):
+        self.content = content
+        self.role="system"
+    def to_dict(self):
+        return {
+            "role": self.role,
+            "content": self.content,
+        }
+
+class HumanMessage:
+    def __init__(self, content):
+        self.content = content
+        self.role="user"
+    def to_dict(self):
+        return {
+            "role": self.role,
+            "content": self.content,
+        }
+
+class ToolMessage:
+    def __init__(self, content):
+        self.content = content
+        self.role="tool"
+    def to_dict(self, tool_call_id):
+        return {
+            "role": self.role,
+            "content": self.content,
+            "tool_call_id": tool_call_id
+        }
+
+
+@traceable(name="invoke_agent")
+def invoke_agent(messages_to_send):
+    return  client.chat.send(
+            model=MODEL,
+            messages=messages_to_send,
+            tools=tools_schema,
+            tool_choice="auto"
+        )
+
+@traceable(name="run_agent")
 def run_agent(question:str):
-    tools=[get_product_price, get_discounted_price]
-    tools_dict={t.name: t for t in tools}
-    llm= init_chat_model(MODEL, temperature=0.1, model_provider="openrouter")
-    llm_with_tools = llm.bind_tools(tools)
-    
-    print(f"Running agent with model {MODEL} and tools {tools} for question: {question}")
+    tools_dict={
+        "get_product_price": get_product_price,
+        "get_discounted_price": get_discounted_price
+    }
+
+    print(f"Running agent with model {MODEL} and tools {tools_schema} for question: {question}")
     print("="*60)
     messages=[
         SystemMessage(content=
-                      "You are a helpful assistant that can provide product prices and calculate discounted prices."
-                      "Use the tools provided to answer the user's question accurately and concisely."
-                      "If the user asks for a product price, use the get_product_price tool."
-                      "If they ask for a discounted price, use the get_discounted_price tool."
-                      "always call in order, dont call get_discounted_price before get_product_price, first get the price and then calculate the discounted price."
-                      "If you don't know the answer, say you don't know instead of making up an answer."
-                      "If the price is not available, say 'Product not found' instead of making up a price."
-                      "STRICT RULES — you must follow these exactly:\n"
-                        "1. NEVER guess or assume any product price. "
-                        "You MUST call get_product_price first to get the real price.\n"
-                        "2. Only call apply_discount AFTER you have received "
-                        "a price from get_product_price. Pass the exact price "
-                        "returned by get_product_price — do NOT pass a made-up number.\n"
-                        "3. NEVER calculate discounts yourself using math. "
-                        "Always use the apply_discount tool.\n"
-                        "4. If the user does not specify a discount tier, "
-                        "ask them which tier to use — do NOT assume one."
-                      ),
+    "You are a product pricing assistant. "
+    "Known products are: laptop, smartphone, headphones. "
+    "If the user mentions one of these known products, call get_product_price using that exact product name. "
+    "For discounted price questions, first call get_product_price, then call get_discounted_price using the exact price returned by get_product_price. "
+    "Never calculate discounts yourself. "
+    "If the product is not one of the known products, call get_product_price anyway and use its result. "
+        ),
         HumanMessage(content=question)
     ]
+
+    messages_to_send=[m.to_dict() for m in messages]
     for i in range(1,ITERATION+1):
         print(f"Iteration {i}/{ITERATION}")
-        ai_message=llm_with_tools.invoke(messages)
-        tool_calls_to_make= ai_message.tool_calls
+        ai_message=invoke_agent(messages_to_send)
+        print(f"AI response: {ai_message}")
+        ai_message_content=ai_message.choices[0].message
+
+        tool_calls_to_make= ai_message.choices[0].message.tool_calls 
 
         if not tool_calls_to_make:
             print("No more tool calls needed. Final response:")
-            print(ai_message.content)
-            return ai_message.content
+            print(ai_message.choices[0].message.content)
+            return ai_message.choices[0].message.content
         
         tool_to_call=tool_calls_to_make[0]
-        tool_name=tool_to_call.get("name")
-        tool_args=tool_to_call.get("args",{})
-        available_tool=tools_dict.get(tool_name)
-        tool_call_id=tool_to_call.get("id")
+        tool_name=tool_to_call.function.name
+        tool_args=json.loads(tool_to_call.function.arguments)
+        available_tool= tools_dict.get(tool_name)
+        
+        
 
         print(f"AI wants to call tool: {tool_name} with args: {tool_args}")
         if not available_tool:
             print(f"Tool {tool_name} not found. Skipping tool call.")
             continue
 
-        observation = available_tool.invoke(tool_args)
+        observation = available_tool(**tool_args)
 
-        messages.append(ai_message)
-        messages.append(
-            ToolMessage(content=str(observation), tool_call_id=tool_call_id)
+        messages_to_send.append(ai_message_content)
+        messages_to_send.append(
+            ToolMessage(content=str(observation)).to_dict(tool_call_id=tool_to_call.id)
             )
 
 

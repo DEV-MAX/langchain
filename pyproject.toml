@@ -1,7 +1,7 @@
 [project]
-name = "langchain-agent-loop"
+name = "langchain-agent-loop-raw"
 version = "0.1.0"
-description = "Add your description here"
+description = "This project helps to understand the agentic loop LLM does"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
