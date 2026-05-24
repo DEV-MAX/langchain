@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()  # Load environment variables from .env file
 import os
 
-class clOpenRouterEmbeddings(Embeddings):
+class OpenRouterEmbeddings(Embeddings):
     def __init__(self, model_name: str):
         self.model_name = model_name
         self.configuration = {
