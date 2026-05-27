@@ -28,13 +28,13 @@ def get_batches(embeddings: list[Document], batch_size: int = 50):
     
 
 async def save_embedding_asbatches(embeddings: list[list[Document]], batch_size: int = 10):
-    result = [await _save_embeddings(batch) for batch in embeddings]
+    result = [await _get_embeddings(batch) for batch in embeddings]
     flat_result=[item for ml in result for item in ml]
     return flat_result
 
 
 
-async def _save_embeddings(embeddings: list[Document]):
+async def _get_embeddings(embeddings: list[Document]):
     vector_store = PineconeVectorStore(index_name="langchain-default-index", embedding=OpenRouterEmbedding(), 
                                        pinecone_api_key=os.environ.get("PINE_CONE_API_KEY"))
     result=await vector_store.aadd_documents(embeddings)
