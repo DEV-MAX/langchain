@@ -1,3 +1,5 @@
+from urllib import response
+
 from langchain.embeddings import Embeddings
 from openrouter import OpenRouter
 from openrouter.operations import  CreateEmbeddingsResponse
@@ -7,7 +9,7 @@ load_dotenv()
 
 class OpenRouterEmbedding(Embeddings):
 
-    model="text-embedding-3-small"
+    model="nvidia/llama-nemotron-embed-vl-1b-v2:free"
    
     def __init__(self, model: str=None, api_key: str=None):
         """Initialize with model and API key."""
@@ -30,7 +32,8 @@ class OpenRouterEmbedding(Embeddings):
 
         try:             
             with self.client as client:
-                return client.embeddings.generate(input=texts, model=self.model)
+                response= client.embeddings.generate(input=texts, model=self.model)
+                return [data.embedding for data in response.data]
         except Exception as e:            
             print(f"Error embedding documents: {e}")
             return []
