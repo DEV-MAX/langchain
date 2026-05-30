@@ -1,4 +1,5 @@
 
+import asyncio
 from importlib import metadata
 import os
 
@@ -6,7 +7,7 @@ from langchain_tavily import TavilyCrawl, TavilyMap
 from langchain_pinecone import PineconeVectorStore, embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
-
+import crawl
 from openrouterembedding import OpenRouterEmbedding
 
 from langchain_core.documents import Document
@@ -15,7 +16,7 @@ def get_batches(embeddings: list[Document], batch_size: int = 50):
 
     batches=[]
 
-    split_documents=RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200).split_documents(embeddings)
+    split_documents=RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200).split_documents(embeddings)
     #for i in range(0, len(embeddings), batch_size):
         
     #batch_embeddings = embeddings[i:i + batch_size]
@@ -39,3 +40,18 @@ async def _get_embeddings(embeddings: list[Document]):
                                        pinecone_api_key=os.environ.get("PINE_CONE_API_KEY"))
     result=await vector_store.aadd_documents(embeddings)
     return result 
+
+
+def  crawl_website(url: str) -> list[dict[str, str]]:
+    response = crawl.get(url)
+    
+    return [Document(page_content=content["content"], metadata={"url": content["url"]}) for content in response]
+
+
+
+
+if __name__ == "__main__":
+    documents = crawl_website("https://python.langchain.com")
+    batches=get_batches(documents, batch_size=10)
+    embedding = asyncio.run(save_embedding_asbatches(batches))
+    print(embedding)
