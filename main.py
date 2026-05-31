@@ -62,6 +62,9 @@ def ask_llm(query: str):
     documents= [item.artifact for item in result["messages"] if isinstance(item, ToolMessage) and hasattr(item,"artifact")]
     return {"answer": answer, "retrieved_docs": documents}
 
+def getanswer(query: str):
+    return ask_llm(query).get("answer")
+
 if __name__ == "__main__":
     answer = ask_llm("how to create an agent for model on openrouter?")
     print(answer.get("answer"))
